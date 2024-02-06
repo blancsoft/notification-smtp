@@ -8,7 +8,8 @@ on:
     types: [created]
 
 jobs:
-  build:
+  publish:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,22 +20,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: pnpm
-      - run: pnpm i
-      - run: pnpm build
-      - run: pnpm test
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
           registry-url: https://registry.npmjs.org/
       - run: pnpm i
       - run: pnpm build
+      - run: pnpm test
       - run: pnpm publish --access=public
         env:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
