@@ -1,6 +1,5 @@
 import type {MedusaRequest, MedusaResponse} from "@medusajs/medusa";
 import {validator} from "@medusajs/medusa"
-import {MedusaError} from "@medusajs/utils"
 import {IsString, IsObject, IsOptional} from "class-validator"
 
 export class SendEmailReq {
