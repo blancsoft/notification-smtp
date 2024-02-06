@@ -1,6 +1,5 @@
 import {SubscriberArgs, SubscriberConfig} from "@medusajs/medusa";
-import SmtpService from "../services/smtp";
-import {RestockNotificationRestockedEventData} from "../services/smtp_types";
+import SmtpService, {RestockNotificationRestockedEventData} from "../services/smtp";
 
 const RESTOCK_NOTIFICATION_RESTOCKED = "restock-notification.restocked";
 

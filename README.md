@@ -28,7 +28,7 @@ Documentation for this can be found at [forwardemail/email-templates][emailTempl
   transport: {
     host: "smtp.office365.com",
     port: 587,
-    secureConnection: false,
+    secure: false,
     auth: {
       user: process.env.EMAIL_SENDER_ADDRESS,
       pass: process.env.EMAIL_SENDER_PASS,
@@ -39,7 +39,7 @@ Documentation for this can be found at [forwardemail/email-templates][emailTempl
     requireTLS: true,
   },
 
-// emailTemplatePath is the filesystem path where your email templates are stored
+  // emailTemplatePath is the filesystem path where your email templates are stored
   emailTemplatePath: "data/emailTemplates",
 
   // templateMap maps a template name to an event type.

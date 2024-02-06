@@ -2,6 +2,7 @@ import nodemailer, {type Transporter} from "nodemailer"
 import Email, {type EmailOptions} from "email-templates"
 
 import {humanizeAmount, zeroDecimalCurrencies} from "medusa-core-utils"
+import {LineItemTaxLine} from "@medusajs/medusa/dist/models";
 import InviteService from "@medusajs/medusa/dist/services/invite"
 import {
   CartService,
@@ -12,6 +13,7 @@ import {
   GiftCardService,
   LineItemService,
   NotificationService,
+  AbstractNotificationService,
   OrderService,
   ProductVariantService,
   ReturnService,
@@ -31,29 +33,138 @@ import type {
 } from "@medusajs/medusa"
 
 
-import type {
-  ClaimShipmentCreatedEventData,
-  CustomerPasswordResetEventData,
+export type PluginConfig = {
+  fromEmail: string,
+  transport: { [key: string]: unknown } | string,
+  emailTemplatePath: string,
+  templateMap: { [key: string]: string },
+}
+
+type BaseEventData = {
+  // string ID of order
+  id: string,
+
+  // no_notification indicates whether a notification should be sent
+  no_notification?: boolean
+}
+
+export type OrderPlacedEventData = BaseEventData
+export type OrderCanceledEventData = BaseEventData
+export type OrderGiftCardCreatedEventData = Pick<BaseEventData, "id">
+export type OrderItemsReturnedEventData = OrderRequestedEventData;
+export type OrderRequestedEventData = BaseEventData & {
+  // string ID of return
+  return_id: string
+}
+export type OrderShipmentCreatedEventData = BaseEventData & {
+  // string ID of fulfillment
+  fulfillment_id: string,
+}
+
+export type GiftCardCreatedEventData = OrderGiftCardCreatedEventData;
+export type SwapCreatedEventData = BaseEventData
+export type SwapShipmentCreatedEventData = OrderShipmentCreatedEventData
+export type SwapReceivedEventData = BaseEventData & {
+  // string ID of order
+  order_id: string,
+}
+
+
+export type ClaimShipmentCreatedEventData = OrderShipmentCreatedEventData
+
+export type UserPasswordResetEventData = {
+  // string email of user requesting to reset their password
+  email: string,
+
+  // token create to reset the password
+  token: string
+}
+export type CustomerPasswordResetEventData = {
+  // string ID of customer
+  id: string,
+
+  // string email of the customer
+  email: string,
+
+  // string first name of the customer
+  first_name: string,
+
+  // string last name of the customer
+  last_name: string,
+
+  // string reset password token
+  token: string
+}
+
+export type InviteCreatedEventData = {
+  // string ID of invite
+  id: string,
+  // string token generated to validate the invited user
+  token: string,
+  // string email of invited user
+  user_email: string,
+}
+
+export type RestockNotificationRestockedEventData = {
+  // The ID of the variant that has been restocked
+  variant_id: string,
+
+  // email addresses subscribed to the restocked variant
+  emails: string[],
+}
+
+export type ProcessedLineItem = LineItem & {
+  price: string,
+}
+
+export type WithRequired<T, K extends keyof T> = T & { [P in K]-?: T[P] }
+
+export type ChangePropertyType<T, Keys extends keyof T, NewType> = {
+  [K in keyof T]: K extends Keys ? NewType : T[K];
+};
+
+export type EnrichedOrderCanceledData = ChangePropertyType<
+  Order,
+  "subtotal"
+  | "gift_card_total"
+  | "tax_total"
+  | "discount_total"
+  | "shipping_total"
+  | "total",
+  string> & {
+  locale: unknown,
+  has_discounts: boolean | number,
+  has_gift_cards: boolean | number,
+  date: string,
+  items: ProcessedLineItem[],
+  discounts: Discount[] & { is_giftcard: boolean, code: string, descriptor: string }[],
+}
+
+export type LineItemTotals = {
+  unit_price: number;
+  quantity: number;
+  subtotal: number;
+  tax_total: number;
+  total: number;
+  original_total: number;
+  original_tax_total: number;
+  tax_lines: LineItemTaxLine[];
+  discount_total: number;
+  raw_discount_total: number;
+};
+
+export type ProcessedLineItemTotals = ProcessedLineItem & {
+  totals: LineItemTotals,
+  discounted_price: string,
+}
+export type EnrichedOrderPlaceData = ChangePropertyType<
   EnrichedOrderCanceledData,
-  EnrichedOrderPlaceData,
-  InviteCreatedEventData,
-  OrderCanceledEventData,
-  OrderGiftCardCreatedEventData,
-  OrderItemsReturnedEventData,
-  OrderPlacedEventData,
-  OrderRequestedEventData,
-  OrderShipmentCreatedEventData,
-  PluginConfig,
-  ProcessedLineItem,
-  RestockNotificationRestockedEventData,
-  SwapCreatedEventData,
-  SwapReceivedEventData,
-  SwapShipmentCreatedEventData,
-  UserPasswordResetEventData,
-} from "./smtp_types";
+  "items",
+  ProcessedLineItemTotals[]
+> & { subtotal_ex_tax: string } & Record<string, any>
 
 
-export class SmtpService extends NotificationService {
+export class SmtpService extends AbstractNotificationService {
   static identifier = "smtpService"
 
   protected readonly cartService_: CartService;
@@ -62,6 +173,7 @@ export class SmtpService extends NotificationService {
   protected readonly fulfillmentService_: FulfillmentService;
   protected readonly giftCardService_: GiftCardService;
   protected readonly lineItemService_: LineItemService;
+  protected readonly notificationService: NotificationService;
   protected readonly orderService_: OrderService;
   protected readonly productVariantService_: ProductVariantService;
   protected readonly returnService_: ReturnService;
@@ -71,14 +183,10 @@ export class SmtpService extends NotificationService {
 
   protected readonly options_: PluginConfig;
   protected readonly transporter: Transporter
+  protected readonly mailer: Email
 
   constructor(container: MedusaContainer, options: PluginConfig) {
-    super({
-      manager: container.resolve("manager"),
-      logger: container.resolve("logger"),
-      notificationRepository: container.resolve("notificationRepository"),
-      notificationProviderRepository: container.resolve("notificationProviderRepository"),
-    });
+    super(container, options);
 
     this.cartService_ = container.resolve("cartService");
     this.claimService_ = container.resolve("claimService");
@@ -86,6 +194,7 @@ export class SmtpService extends NotificationService {
     this.fulfillmentService_ = container.resolve("fulfillmentService");
     this.giftCardService_ = container.resolve("giftCardService");
     this.lineItemService_ = container.resolve("lineItemService");
+    this.notificationService = container.resolve("notificationService")
     this.orderService_ = container.resolve("orderService");
     this.productVariantService_ = container.resolve("productVariantService");
     this.returnService_ = container.resolve("returnService");
@@ -95,6 +204,19 @@ export class SmtpService extends NotificationService {
 
     this.options_ = options;
     this.transporter = nodemailer.createTransport(this.options_.transport)
+    this.mailer = new Email({
+      message: {
+        from: this.options_.fromEmail,
+      },
+      transport: this.transporter,
+      views: {
+        root: this.options_.emailTemplatePath,
+      },
+      send: true,
+    })
+
+    // TODO: Ensure to registerAttachmentGenerator
+    this.notificationService.registerAttachmentGenerator({})
   }
 
   async fetchAttachments(
@@ -132,7 +254,6 @@ export class SmtpService extends NotificationService {
           )
         }
 
-        // TODO: Ensure to registerAttachmentGenerator
         if (attachmentGenerator && attachmentGenerator.createReturnInvoice) {
           const base64 = await attachmentGenerator.createReturnInvoice(
             data.order,
@@ -240,18 +361,7 @@ export class SmtpService extends NotificationService {
       })
     }
 
-    const email = new Email({
-      message: {
-        from: this.options_.fromEmail,
-      },
-      transport: this.transporter,
-      views: {
-        root: this.options_.emailTemplatePath,
-      },
-      send: true,
-    })
-
-    const status = await email
+    const status = await this.mailer
       .send(sendOptions)
       .then(() => "sent")
       .catch(() => "failed")
@@ -302,18 +412,7 @@ export class SmtpService extends NotificationService {
         contentId: a.name,
       }
     })
-
-    const email = new Email({
-      message: {
-        from: this.options_.fromEmail,
-      },
-      transport: this.transporter,
-      views: {
-        root: this.options_.emailTemplatePath,
-      },
-      send: true,
-    })
-    const status = await email
+    const status = await this.mailer
       .send(sendOptions)
       .then(() => "sent")
       .catch(() => "failed")
@@ -336,20 +435,11 @@ export class SmtpService extends NotificationService {
       data?: Record<string, unknown>,
     }
   ): Promise<ReturnedData> {
-    const email = new Email({
-      message: {
-        from: options.from || this.options_.fromEmail,
-      },
-      transport: this.transporter,
-      views: {
-        root: this.options_.emailTemplatePath,
-      },
-      send: true,
-    })
-    const status = await email
+    const status = await this.mailer
       .send({
         template: options.templateName,
         message: {
+          from: options.from || this.options_.fromEmail,
           to: options.to,
         },
         locals: {
