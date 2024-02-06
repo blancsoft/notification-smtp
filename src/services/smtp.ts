@@ -1,68 +1,73 @@
-import nodemailer from "nodemailer"
-import {humanizeAmount, zeroDecimalCurrencies} from "medusa-core-utils"
-import Email, {EmailOptions} from "email-templates"
+import nodemailer, {type Transporter} from "nodemailer"
+import Email, {type EmailOptions} from "email-templates"
 
+import {humanizeAmount, zeroDecimalCurrencies} from "medusa-core-utils"
+import InviteService from "@medusajs/medusa/dist/services/invite"
 import {
-  NotificationService,
-  StoreService,
-  OrderService,
-  ReturnService,
-  SwapService,
   CartService,
-  LineItemService,
   ClaimService,
-  FulfillmentService,
+  CustomerService,
   FulfillmentProviderService,
-  TotalsService,
+  FulfillmentService,
+  GiftCardService,
+  LineItemService,
+  NotificationService,
+  OrderService,
   ProductVariantService,
+  ReturnService,
+  StoreService,
+  SwapService,
+  TotalsService,
+  UserService,
+} from "@medusajs/medusa"
+import type {
+  Discount,
+  LineItem,
   MedusaContainer,
-  ReturnedData,
   Notification,
   Order,
-  LineItem,
-  GiftCardService,
-  Discount,
-  WithRequiredProperty, UserService, CustomerService
+  ReturnedData,
+  WithRequiredProperty,
 } from "@medusajs/medusa"
-import {Transporter} from "nodemailer"
 
-import {
-  PluginConfig,
-  OrderPlacedEventData,
+
+import type {
+  ClaimShipmentCreatedEventData,
+  CustomerPasswordResetEventData,
+  EnrichedOrderCanceledData,
+  EnrichedOrderPlaceData,
+  InviteCreatedEventData,
   OrderCanceledEventData,
   OrderGiftCardCreatedEventData,
   OrderItemsReturnedEventData,
+  OrderPlacedEventData,
   OrderRequestedEventData,
   OrderShipmentCreatedEventData,
-  SwapCreatedEventData,
-  SwapShipmentCreatedEventData,
-  SwapReceivedEventData,
-  ClaimShipmentCreatedEventData,
-  UserPasswordResetEventData,
-  CustomerPasswordResetEventData,
-  InviteCreatedEventData,
+  PluginConfig,
+  ProcessedLineItem,
   RestockNotificationRestockedEventData,
-
-  EnrichedOrderCanceledData, ProcessedLineItem, EnrichedOrderPlaceData
+  SwapCreatedEventData,
+  SwapReceivedEventData,
+  SwapShipmentCreatedEventData,
+  UserPasswordResetEventData,
 } from "./smtp_types";
-import InviteService from "@medusajs/medusa/dist/services/invite";
 
 
 export class SmtpService extends NotificationService {
   static identifier = "smtpService"
 
-  protected readonly storeService_: StoreService;
-  protected readonly orderService_: OrderService;
-  protected readonly returnService_: ReturnService;
-  protected readonly swapService_: SwapService;
   protected readonly cartService_: CartService;
-  protected readonly lineItemService_: LineItemService;
   protected readonly claimService_: ClaimService;
-  protected readonly fulfillmentService_: FulfillmentService;
   protected readonly fulfillmentProviderService_: FulfillmentProviderService;
-  protected readonly totalsService_: TotalsService;
-  protected readonly productVariantService_: ProductVariantService;
+  protected readonly fulfillmentService_: FulfillmentService;
   protected readonly giftCardService_: GiftCardService;
+  protected readonly lineItemService_: LineItemService;
+  protected readonly orderService_: OrderService;
+  protected readonly productVariantService_: ProductVariantService;
+  protected readonly returnService_: ReturnService;
+  protected readonly storeService_: StoreService;
+  protected readonly swapService_: SwapService;
+  protected readonly totalsService_: TotalsService;
 
   protected readonly options_: PluginConfig;
   protected readonly transporter: Transporter
@@ -75,20 +80,20 @@ export class SmtpService extends NotificationService {
       notificationProviderRepository: container.resolve("notificationProviderRepository"),
     });
 
-    this.options_ = options;
-    this.fulfillmentProviderService_ = container.resolve("fulfillmentProviderService");
-    this.storeService_ = container.resolve("storeService");
-    this.lineItemService_ = container.resolve("lineItemService");
-    this.orderService_ = container.resolve("orderService");
     this.cartService_ = container.resolve("cartService");
     this.claimService_ = container.resolve("claimService");
-    this.returnService_ = container.resolve("returnService");
-    this.swapService_ = container.resolve("swapService");
+    this.fulfillmentProviderService_ = container.resolve("fulfillmentProviderService");
     this.fulfillmentService_ = container.resolve("fulfillmentService");
-    this.totalsService_ = container.resolve("totalsService");
-    this.productVariantService_ = container.resolve("productVariantService");
     this.giftCardService_ = container.resolve("giftCardService");
+    this.lineItemService_ = container.resolve("lineItemService");
+    this.orderService_ = container.resolve("orderService");
+    this.productVariantService_ = container.resolve("productVariantService");
+    this.returnService_ = container.resolve("returnService");
+    this.storeService_ = container.resolve("storeService");
+    this.swapService_ = container.resolve("swapService");
+    this.totalsService_ = container.resolve("totalsService");
 
+    this.options_ = options;
     this.transporter = nodemailer.createTransport(this.options_.transport)
   }
 
@@ -161,7 +166,6 @@ export class SmtpService extends NotificationService {
         return this.returnRequestedData(eventData, attachmentGenerator)
       case OrderService.Events.SHIPMENT_CREATED:
         return this.orderShipmentCreatedData(eventData, attachmentGenerator)
-
 
       case SwapService.Events.CREATED:
         return this.swapCreatedData(eventData, attachmentGenerator)
