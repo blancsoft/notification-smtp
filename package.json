@@ -65,6 +65,7 @@
   "keywords": [
     "smtp",
     "email",
-    "medusa-plugin"
+    "medusa-plugin",
+    "medusa-plugin-notification"
   ]
 }
